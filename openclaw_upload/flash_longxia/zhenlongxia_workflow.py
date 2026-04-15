@@ -1292,7 +1292,7 @@ def main():
         print("  --model=MODEL        模型值，来自模型配置接口")
         print("  --duration=N         视频时长，需匹配所选模型")
         print("  --aspectRatio=XXX    画面比例，需匹配所选模型")
-        print("  --variants=N         生成变体数量")
+        print("  --prompt=TEXT       纯文本提示词，支持不传图片直接生图")
         print("  --tmpplateId=ID      模板 ID，透传给 generateVideo")
         print("  --templateId=ID      模板 ID，兼容别名，透传为 tmpplateId")
         print("  --title=TEXT         模板标题/产品名称；交互选模板时默认取模板标题")
@@ -1308,7 +1308,7 @@ def main():
         print("  python zhenlongxia_workflow.py ./my_image.jpg --model=grok_imagine --duration=10 --aspectRatio=9:16 --variants=1 --yes")
         print("  python zhenlongxia_workflow.py --list-templates --mediaType=1 --menuType=1")
         print("  python zhenlongxia_workflow.py --list-templates --mediaType=1 --menuType=1 --tabType=17")
-        print("  python zhenlongxia_workflow.py ./my_image.jpg --tmpplateId=1001 --title=产品名 --yes")
+        print("  python zhenlongxia_workflow.py --prompt=一只小狗，毛茸茸的，趴在草地上")
         print("  python zhenlongxia_workflow.py --id=123456")
         print("  python zhenlongxia_workflow.py --fetch-by-id=123456")
         sys.exit(1)
@@ -1322,6 +1322,7 @@ def main():
     duration = None
     aspectRatio = None
     variants = None
+    imageSize = None
     page_num = 1
     page_size = 20
     media_type = 1
@@ -1329,7 +1330,7 @@ def main():
     tab_type = None
     tmpplateId = None
     title = None
-    auto_confirm = False
+    prompt = None
 
     for arg in sys.argv[1:]:
         if arg == "--list-models":
@@ -1368,6 +1369,8 @@ def main():
             tmpplateId = int(arg.split("=", 1)[1])
         elif arg.startswith("--title="):
             title = arg.split("=", 1)[1]
+        elif arg.startswith("--prompt="):
+            prompt = arg.split("=", 1)[1]
         elif arg == "--yes":
             auto_confirm = True
         elif not arg.startswith("--"):
@@ -1438,8 +1441,12 @@ def main():
         print(f"[完成] 视频已保存：{local_path}")
         return
 
-    if not image_paths:
-        print("错误：缺少图片路径，或请使用 --id=ID")
+    if prompt is None and image_paths:
+        prompt = " ".join(image_paths).strip()
+        image_paths = []
+
+    if not prompt and not image_paths:
+        print("错误：缺少提示词或图片路径")
         sys.exit(1)
 
     resolved_image_paths: list[str] = []
@@ -1454,16 +1461,17 @@ def main():
                 sys.exit(1)
         resolved_image_paths.append(current_path)
 
-    run_workflow(
-        resolved_image_paths,
+    run_image_workflow(
+        resolved_image_paths if resolved_image_paths else None,
         token=token,
         model=model,
-        duration=duration,
         aspectRatio=aspectRatio,
+        imageSize=imageSize,
         variants=variants,
         tmpplateId=tmpplateId,
         title=title,
         auto_confirm=auto_confirm,
+        prompt=prompt,
     )
 
 
