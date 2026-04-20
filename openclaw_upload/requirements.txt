@@ -1,0 +1,7 @@
+# Hermes 当前主视频工作流依赖（生成 + 登录 + 上传）
+requests>=2.28.0
+PyYAML>=6.0
+websockets>=13.1
+nodriver>=0.45
+loguru>=0.7.2
+pyautogui>=0.9.54

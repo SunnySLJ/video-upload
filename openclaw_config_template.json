@@ -1,0 +1,220 @@
+{
+  "agents": {
+    "defaults": {
+      "workspace": "/Users/fox/.openclaw/workspace",
+      "models": {
+        "custom-api-n1n-ai/gpt-5.4-mini": {
+          "alias": "gpt-5.4-mini"
+        },
+        "volcengine-plan/ark-code-latest": {},
+        "volcengine-plan/doubao-seed-code": {},
+        "volcengine-plan/glm-4.7": {},
+        "volcengine-plan/deepseek-v3.2": {},
+        "volcengine-plan/doubao-seed-2.0-code": {},
+        "volcengine-plan/doubao-seed-2.0-pro": {},
+        "volcengine-plan/doubao-seed-2.0-lite": {},
+        "volcengine-plan/minimax-m2.5": {},
+        "volcengine-plan/kimi-k2.5": {}
+      },
+      "compaction": {
+        "mode": "safeguard"
+      }
+    }
+  },
+  "gateway": {
+    "mode": "local",
+    "auth": {
+      "mode": "token",
+      "token": "YOUR_GATEWAY_TOKEN_HERE"
+    },
+    "port": 18789,
+    "bind": "loopback",
+    "tailscale": {
+      "mode": "off",
+      "resetOnExit": false
+    },
+    "nodes": {
+      "denyCommands": [
+        "camera.snap",
+        "camera.clip",
+        "screen.record",
+        "contacts.add",
+        "calendar.add",
+        "reminders.add",
+        "sms.send",
+        "sms.search"
+      ]
+    }
+  },
+  "session": {
+    "dmScope": "per-channel-peer"
+  },
+  "tools": {
+    "profile": "full",
+    "alsoAllow": [
+      "feishu_bitable_app",
+      "feishu_bitable_app_table",
+      "feishu_bitable_app_table_field",
+      "feishu_bitable_app_table_record",
+      "feishu_bitable_app_table_view",
+      "feishu_calendar_calendar",
+      "feishu_calendar_event",
+      "feishu_calendar_event_attendee",
+      "feishu_calendar_freebusy",
+      "feishu_chat",
+      "feishu_chat_members",
+      "feishu_create_doc",
+      "feishu_doc_comments",
+      "feishu_doc_media",
+      "feishu_drive_file",
+      "feishu_fetch_doc",
+      "feishu_get_user",
+      "feishu_im_bot_image",
+      "feishu_im_user_fetch_resource",
+      "feishu_im_user_get_messages",
+      "feishu_im_user_get_thread_messages",
+      "feishu_im_user_message",
+      "feishu_im_user_search_messages",
+      "feishu_oauth",
+      "feishu_oauth_batch_auth",
+      "feishu_search_doc_wiki",
+      "feishu_search_user",
+      "feishu_sheet",
+      "feishu_task_comment",
+      "feishu_task_subtask",
+      "feishu_task_task",
+      "feishu_task_tasklist",
+      "feishu_update_doc",
+      "feishu_wiki_space",
+      "feishu_wiki_space_node"
+    ]
+  },
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "custom-api-n1n-ai": {
+        "api": "openai-completions",
+        "apiKey": "YOUR_API_KEY_HERE",
+        "baseUrl": "https://api.n1n.ai/v1",
+        "models": [
+          {
+            "cost": {
+              "cacheRead": 0,
+              "cacheWrite": 0,
+              "input": 0,
+              "output": 0
+            },
+            "id": "gpt-5.4-mini",
+            "input": [
+              "text",
+              "image"
+            ],
+            "name": "gpt-5.4-mini (Custom Provider)",
+            "reasoning": false
+          }
+        ]
+      }
+    }
+  },
+  "hooks": {
+    "internal": {
+      "enabled": true,
+      "entries": {
+        "boot-md": {
+          "enabled": true
+        },
+        "bootstrap-extra-files": {
+          "enabled": true
+        },
+        "command-logger": {
+          "enabled": true
+        },
+        "session-memory": {
+          "enabled": true
+        }
+      }
+    }
+  },
+  "wizard": {
+    "lastRunAt": "2026-04-10T06:25:18.908Z",
+    "lastRunVersion": "2026.4.9",
+    "lastRunCommand": "onboard",
+    "lastRunMode": "local"
+  },
+  "meta": {
+    "lastTouchedVersion": "2026.4.14",
+    "lastTouchedAt": "2026-04-20T06:36:54.556Z"
+  },
+  "plugins": {
+    "entries": {
+      "feishu": {
+        "enabled": false
+      },
+      "openclaw-lark": {
+        "enabled": true
+      },
+      "volcengine": {
+        "enabled": true
+      }
+    },
+    "installs": {
+      "openclaw-lark": {
+        "source": "archive",
+        "sourcePath": "/var/folders/4j/0m2_0vv528d4kpxn6v0grphh0000gn/T/openclaw-lark-zuj4HF/larksuite-openclaw-lark-2026.4.7.tgz",
+        "installPath": "/Users/fox/.openclaw/extensions/openclaw-lark",
+        "version": "2026.4.7",
+        "installedAt": "2026-04-10T07:01:11.030Z"
+      }
+    },
+    "allow": [
+      "browser",
+      "openclaw-lark",
+      "memory-core",
+      "volcengine"
+    ]
+  },
+  "channels": {
+    "feishu": {
+      "enabled": true,
+      "appId": "cli_a9521c72c2799bcf",
+      "appSecret": {
+        "source": "file",
+        "provider": "lark-secrets",
+        "id": "/lark/appSecret"
+      },
+      "domain": "feishu",
+      "connectionMode": "websocket",
+      "requireMention": true,
+      "dmPolicy": "allowlist",
+      "allowFrom": [
+        "ou_5730c3ba7c6a6129d26a947d21b1f7d1",
+        "ou_c26518befc324bcdd4093c2271292f05",
+        "ou_e1ec6e81a54e7beb4e6f4a91fa6e0ab3"
+      ],
+      "groupAllowFrom": [
+        "ou_5730c3ba7c6a6129d26a947d21b1f7d1",
+        "ou_c26518befc324bcdd4093c2271292f05",
+        "ou_e1ec6e81a54e7beb4e6f4a91fa6e0ab3"
+      ],
+      "groupPolicy": "open",
+      "groups": {
+        "*": {
+          "enabled": true
+        }
+      },
+      "streaming": true,
+      "footer": {
+        "elapsed": true,
+        "status": true
+      }
+    }
+  },
+  "secrets": {
+    "providers": {
+      "lark-secrets": {
+        "source": "file",
+        "path": "~/.openclaw/credentials/lark.secrets.json"
+      }
+    }
+  }
+}

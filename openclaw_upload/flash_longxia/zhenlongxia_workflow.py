@@ -30,12 +30,29 @@ import subprocess
 import sys
 import time
 from pathlib import Path
+from typing import Any
+
+
+def _load_env_python() -> tuple[Path, Path] | None:
+    """优先尊重外部指定的 Python 3.11 运行时。"""
+    env_python = (os.environ.get("OPENCLAW_PYTHON") or "").strip()
+    if not env_python:
+        return None
+
+    candidate = Path(env_python).expanduser()
+    if not candidate.exists():
+        return None
+
+    parent = candidate.parent
+    if parent.name in ("bin", "Scripts"):
+        return parent.parent, candidate
+    return parent, candidate
 
 
 def _resolve_venv_python(venv_root: Path) -> Path | None:
     """兼容 macOS/Linux 与 Windows 的虚拟环境 Python 路径。"""
     candidates = [
-        venv_root / "bin" / "python3.12",
+        venv_root / "bin" / "python3.11",
         venv_root / "bin" / "python3",
         venv_root / "bin" / "python",
         venv_root / "Scripts" / "python.exe",
@@ -48,7 +65,11 @@ def _resolve_venv_python(venv_root: Path) -> Path | None:
 
 
 def _find_project_venv(repo_root: Path) -> tuple[Path, Path] | None:
-    """兼容 .venv 与 venv 两种仓库内虚拟环境目录。"""
+    """优先使用显式配置或仓库内 uv `.venv`。"""
+    env_python = _load_env_python()
+    if env_python is not None:
+        return env_python
+
     for name in (".venv", "venv"):
         venv_root = repo_root / name
         venv_python = _resolve_venv_python(venv_root)
@@ -58,17 +79,26 @@ def _find_project_venv(repo_root: Path) -> tuple[Path, Path] | None:
 
 
 def _ensure_project_venv() -> None:
-    """优先切换到仓库内虚拟环境 Python，避免依赖缺失。"""
+    """脚本直跑时切到项目 Python；作为模块导入时不重启解释器。"""
+    if __name__ != "__main__":
+        return
+    if os.environ.get("OPENCLAW_PYTHON_LOCK") == "1":
+        return
+
     repo_root = Path(__file__).resolve().parent.parent
     project_venv = _find_project_venv(repo_root)
     if project_venv is None:
         return
     venv_root, venv_python = project_venv
 
-    if Path(sys.prefix).resolve() == venv_root.resolve():
+    current_executable = Path(sys.executable).resolve()
+    current_prefix = Path(sys.prefix).resolve()
+    if current_prefix == venv_root.resolve() or current_executable == venv_python.resolve():
         return
 
-    os.execv(str(venv_python), [str(venv_python), *sys.argv])
+    env = os.environ.copy()
+    env["OPENCLAW_PYTHON_LOCK"] = "1"
+    os.execve(str(venv_python), [str(venv_python), *sys.argv], env)
 
 
 _ensure_project_venv()
@@ -76,9 +106,9 @@ _ensure_project_venv()
 import requests
 import yaml
 
-if sys.version_info[:2] != (3, 12):
+if sys.version_info[:2] != (3, 11):
     print(
-        f"[错误] 当前 Python 版本是 {sys.version.split()[0]}，本项目强制使用 Python 3.12，请改用 Python 3.12 运行。",
+        f"[错误] 当前 Python 版本是 {sys.version.split()[0]}，本项目强制使用 Python 3.11，请改用 Python 3.11 运行。",
         flush=True,
     )
     sys.exit(1)
@@ -105,19 +135,6 @@ DEFAULT_CONFIG = {
         "model": "auto",          # 默认模型，可通过模型接口查询可选值
         "duration": 10,
         "aspectRatio": "9:16",
-        "variants": 1,
-    },
-    "image": {
-        "poll_interval": 10,
-        "max_wait_minutes": 20,
-        "download_retries": 3,
-        "download_retry_interval": 5,
-        "output_dir": "./output",
-        "confirm_before_generate": True,
-        # 生图参数（可通过命令行或 config.yaml 覆盖）
-        "model": "auto",
-        "aspectRatio": "1:1",
-        "imageSize": "2K",
         "variants": 1,
     },
 }
@@ -153,6 +170,7 @@ def load_config():
 # Token
 # ---------------------------------------------------------------------------
 TOKEN_FILE = Path(__file__).parent / "token.txt"
+MODEL_CACHE_FILE = Path(__file__).parent / ".model_options_cache.json"
 
 
 def load_saved_token() -> str | None:
@@ -167,13 +185,69 @@ def load_saved_token() -> str | None:
 # API 封装
 # ---------------------------------------------------------------------------
 
+def _response_preview(resp: requests.Response, *, limit: int = 300) -> str:
+    """构造接口异常时的短响应摘要，避免原始异常看不出后端返回了什么。"""
+    text = (resp.text or "").strip()
+    if len(text) > limit:
+        text = f"{text[:limit]}..."
+    return (
+        f"status={resp.status_code}, "
+        f"content-type={resp.headers.get('content-type') or '-'}, "
+        f"body={text or '<empty>'}"
+    )
+
+
+def _read_json_response(resp: requests.Response, *, label: str) -> Any:
+    """读取 JSON 响应；空内容或非 JSON 时抛出带上下文的 RuntimeError。"""
+    if not (resp.text or "").strip():
+        raise RuntimeError(f"{label} 返回空内容：{_response_preview(resp)}")
+    try:
+        return resp.json()
+    except ValueError as exc:
+        raise RuntimeError(f"{label} 返回非 JSON 内容：{_response_preview(resp)}") from exc
+
+
+def _save_model_options_cache(items: list[dict]) -> None:
+    """保存最近一次成功的模型配置，便于后端接口短暂异常时继续执行。"""
+    try:
+        MODEL_CACHE_FILE.write_text(
+            json.dumps(
+                {
+                    "saved_at": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    "items": items,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+    except Exception as exc:
+        print(f"[警告] 模型配置缓存写入失败：{exc}", flush=True)
+
+
+def _load_model_options_cache() -> list[dict] | None:
+    """读取最近一次成功的模型配置缓存。"""
+    if not MODEL_CACHE_FILE.exists():
+        return None
+    try:
+        cached = json.loads(MODEL_CACHE_FILE.read_text(encoding="utf-8"))
+    except Exception as exc:
+        print(f"[警告] 模型配置缓存读取失败：{exc}", flush=True)
+        return None
+    items = cached.get("items") if isinstance(cached, dict) else None
+    saved_at = cached.get("saved_at") if isinstance(cached, dict) else None
+    if isinstance(items, list):
+        print(f"[警告] 使用最近一次成功的模型配置缓存 saved_at={saved_at or '-'}", flush=True)
+        return items
+    return None
+
 def upload_image(upload_url: str, image_path: str, session: requests.Session) -> str | None:
     """POST 上传接口，返回图片可访问 URL。"""
     url = upload_url.rstrip("/")
     with open(image_path, "rb") as f:
         files = {"file": (os.path.basename(image_path), f)}
         resp = session.post(url, files=files, timeout=30)
-    data = resp.json()
+    data = _read_json_response(resp, label="上传图片接口")
     if data.get("code") in (200, 0):
         d = data.get("data")
         if isinstance(d, str):
@@ -197,7 +271,7 @@ def image_to_text(
     url = f"{base_url}/api/v1/aiMediaGenerations/imageToText"
     payload = {"imageType": image_type, "urlList": [image_url]}
     resp = session.post(url, json=payload, timeout=60)
-    data = resp.json()
+    data = _read_json_response(resp, label="图生文接口")
     if data.get("code") in (200, 0):
         d = data.get("data")
         if isinstance(d, str):
@@ -230,14 +304,33 @@ def fetch_model_options(
 ) -> list[dict]:
     """获取视频模型配置列表。"""
     url = (model_config_url or f"{base_url}/api/v1/globalConfig/getModel").rstrip("/")
-    resp = session.get(url, params={"modelType": model_type}, timeout=15)
-    data = resp.json()
-    if data.get("code") not in (200, 0):
-        raise RuntimeError(f"获取模型配置失败：{data}")
-    items = data.get("data")
-    if not isinstance(items, list):
-        raise RuntimeError(f"模型配置返回格式异常：{data}")
-    return items
+    last_error: Exception | None = None
+    for attempt in range(1, 4):
+        try:
+            resp = session.get(url, params={"modelType": model_type}, timeout=15)
+            data = _read_json_response(resp, label="模型配置接口")
+            if not isinstance(data, dict):
+                raise RuntimeError(f"模型配置接口返回格式异常：expected object, got {type(data).__name__}")
+            if data.get("code") not in (200, 0):
+                raise RuntimeError(f"获取模型配置失败：{data}")
+            items = data.get("data")
+            if not isinstance(items, list) or not items:
+                raise RuntimeError(f"模型配置返回空列表或格式异常：{data}")
+            _save_model_options_cache(items)
+            return items
+        except Exception as exc:
+            last_error = exc
+            if attempt < 3:
+                print(f"[警告] 获取模型配置失败，第 {attempt}/3 次：{exc}；准备重试", flush=True)
+                time.sleep(2)
+
+    cached_items = _load_model_options_cache()
+    if cached_items is not None:
+        return cached_items
+    raise RuntimeError(
+        "模型配置接口连续失败，且本地没有可用缓存。"
+        f"接口: {url}?modelType={model_type}；最后错误: {last_error}"
+    )
 
 
 def fetch_template_categories(
@@ -249,7 +342,7 @@ def fetch_template_categories(
     """获取行业模板分类列表。"""
     url = f"{base_url}/api/v1/aiTemplateCategory/getList"
     resp = session.post(url, json={"mediaType": media_type}, timeout=15)
-    data = resp.json()
+    data = _read_json_response(resp, label="模板分类接口")
     if data.get("code") not in (200, 0):
         raise RuntimeError(f"获取模板分类失败：{data}")
     items = data.get("data")
@@ -277,7 +370,7 @@ def fetch_template_options(
     if tab_type is not None:
         payload["tabType"] = tab_type
     resp = session.post(url, json=payload, timeout=15)
-    data = resp.json()
+    data = _read_json_response(resp, label="模板列表接口")
     if data.get("code") not in (200, 0):
         raise RuntimeError(f"获取模板列表失败：{data}")
 
@@ -786,7 +879,7 @@ def generate_video(
         payload["title"] = title or ""
     payload.update({k: v for k, v in kwargs.items() if v is not None})
     resp = session.post(url, json=payload, timeout=30)
-    data = resp.json()
+    data = _read_json_response(resp, label="视频生成接口")
     if data.get("code") in (200, 0):
         d = data.get("data")
         if isinstance(d, list) and d:
@@ -803,7 +896,7 @@ def fetch_video_by_id(base_url: str, session: requests.Session, video_id: str) -
     url = f"{base_url}/api/v1/aiMediaGenerations/getById"
     try:
         resp = session.get(url, params={"id": video_id}, timeout=15)
-        data = resp.json()
+        data = _read_json_response(resp, label="视频查询接口")
         if data.get("code") in (200, 0):
             return data.get("data")
         return None
@@ -986,49 +1079,7 @@ def download_video(
     raise RuntimeError(f"下载失败，已重试 {attempts} 次：{last_err}")
 
 
-def generate_image(
-    base_url: str,
-    image_url: str,
-    prompt: str,
-    session: requests.Session,
-    *,
-    aspectRatio: str = "1:1",
-    imageSize: str = "2K",
-    variants: int = 1,
-    model: str = "auto",
-    tmpplateId: int | None = None,
-    title: str | None = None,
-    **kwargs,
-) -> str | None:
-    """POST 生图接口，返回任务 id。"""
-    url = f"{base_url}/api/v1/aiMediaGenerations/generateImage"
-    payload = {
-        "url": image_url,
-        "prompt": prompt,
-        "aspectRatio": aspectRatio,
-        "imageSize": imageSize,
-        "variants": variants,
-    }
-    if model:
-        payload["model"] = model
-    if tmpplateId is not None:
-        payload["tmpplateId"] = tmpplateId
-        payload["title"] = title or ""
-    payload.update({k: v for k, v in kwargs.items() if v is not None})
-    resp = session.post(url, json=payload, timeout=30)
-    data = resp.json()
-    if data.get("code") in (200, 0):
-        d = data.get("data")
-        if isinstance(d, list) and d:
-            d = d[0]
-        if isinstance(d, dict):
-            return str(d.get("id") or d.get("groupNo") or d.get("taskId") or d)
-        return str(d) if d else None
-    print(f"[错误] 生成图片失败：{data}", flush=True)
-    return None
-
-
-def fetch_generated_image(
+def fetch_generated_video(
     *,
     task_id: str | None = None,
     token: str | None = None,
@@ -1037,22 +1088,22 @@ def fetch_generated_image(
     filename: str | None = None,
     **kwargs,
 ) -> str:
-    """按任务 ID 查询并下载已生成图片。"""
+    """按任务 ID 查询并下载已生成视频。"""
     config = load_config()
-    image_cfg = config.get("image", {})
+    video_cfg = config.get("video", {})
     resolved_task_id = resolve_task_id(task_id, **kwargs)
     if not resolved_task_id:
         raise ValueError("缺少任务 ID，请传 task_id 或 id")
 
     token_val = token or load_saved_token()
     if not token_val:
-        raise ValueError("请将 Token 写入 flash_longxia/token.txt 或显式传入 token")
+        raise ValueError("请将 Token 写入 config/flash_longxia_token.txt 或显式传入 token")
 
     resolved_base_url = (base_url or config["base_url"]).rstrip("/")
     resolved_output_dir = str(
-        resolve_runtime_path(output_dir or image_cfg.get("output_dir", "./output"))
+        resolve_runtime_path(output_dir or video_cfg.get("output_dir", "../output"), base_dir=Path(__file__).resolve().parent)
     )
-    resolved_filename = filename or f"{resolved_task_id}.png"
+    resolved_filename = filename or f"{resolved_task_id}.mp4"
 
     session = requests.Session()
     session.headers.update({
@@ -1063,31 +1114,41 @@ def fetch_generated_image(
 
     record = fetch_video_by_id(resolved_base_url, session, resolved_task_id)
     if not record:
-        raise RuntimeError(f"未查询到任务 {resolved_task_id} 的图片信息")
+        raise RuntimeError(f"未查询到任务 {resolved_task_id} 的视频信息")
 
     top_status = record.get("status") or record.get("videoStatus") or record.get("taskStatus")
     rep_status = _extract_rep_status(record)
-    image_url = get_video_url(record)
-    if not image_url:
-        rep_image_url = _extract_video_url_from_rep_msg(record)
-        if rep_image_url:
-            image_url = rep_image_url
-    if not image_url and (top_status in _STATUS_FAILED or rep_status in _STATUS_FAILED):
+    video_url = get_video_url(record)
+    if not video_url:
+        rep_video_url = _extract_video_url_from_rep_msg(record)
+        if rep_video_url:
+            video_url = rep_video_url
+    if not video_url and isinstance(record.get("repMsg"), str):
+        try:
+            parsed = json.loads(record["repMsg"])
+            rep_data = parsed.get("data") if isinstance(parsed, dict) else None
+            if isinstance(rep_data, dict):
+                direct = rep_data.get("mediaUrl") or rep_data.get("videoUrl") or rep_data.get("url")
+                if isinstance(direct, str) and direct.startswith("http"):
+                    video_url = direct
+        except Exception:
+            pass
+    if not video_url and (top_status in _STATUS_FAILED or rep_status in _STATUS_FAILED):
         raise RuntimeError(
             f"任务 {resolved_task_id} 已失败: topStatus={top_status}, repStatus={rep_status}, record={record}"
         )
-    if not image_url:
+    if not video_url:
         raise RuntimeError(
-            f"任务 {resolved_task_id} 暂无可下载图片地址: topStatus={top_status}, repStatus={rep_status}, record={record}"
+            f"任务 {resolved_task_id} 暂无可下载视频地址: topStatus={top_status}, repStatus={rep_status}, record={record}"
         )
 
     return download_video(
-        image_url,
+        video_url,
         resolved_output_dir,
         filename=resolved_filename,
         session=session,
-        retries=image_cfg.get("download_retries", 3),
-        retry_interval=image_cfg.get("download_retry_interval", 5),
+        retries=video_cfg.get("download_retries", 3),
+        retry_interval=video_cfg.get("download_retry_interval", 5),
     )
 
 
@@ -1126,39 +1187,48 @@ def start_background_poll(task_id: str, token: str) -> None:
 # 主流程入口
 # ---------------------------------------------------------------------------
 
-def run_image_workflow(
-    image_path: str | list[str] | tuple[str, ...] | None = None,
+def run_workflow(
+    image_path: str | list[str] | tuple[str, ...],
     *,
     token: str | None = None,
     model: str | None = None,
+    duration: int | None = None,
     aspectRatio: str | None = None,
-    imageSize: str | None = None,
     variants: int | None = None,
     tmpplateId: int | None = None,
     title: str | None = None,
     auto_confirm: bool = False,
     prompt: str | None = None,
 ):
-    """串联生图流程；任一步失败则 sys.exit(1)。"""
+    """
+    串联上述步骤；任一步失败则 sys.exit(1)。
+    
+    参数:
+        model: 模型值，来源于模型配置接口；未传时使用配置默认值
+        duration: 视频时长，需匹配所选模型支持的时长
+        aspectRatio: 画面比例，需匹配所选模型支持的比例
+        variants: 生成变体数量
+        auto_confirm: 为 True 时跳过发起视频前的人工确认
+        prompt: 自定义提示词（传入后跳过图生文）
+    """
     config = load_config()
     base_url = config["base_url"].rstrip("/")
     upload_url = config.get("upload_url", f"{base_url}/api/v1/file/upload").rstrip("/")
-    image_cfg = config.get("image", {})
-    model_was_explicit = any(value is not None for value in (model, aspectRatio, imageSize))
+    model_config_url = config.get("model_config_url", f"{base_url}/api/v1/globalConfig/getModel")
+    video_cfg = config.get("video", {})
+    model_was_explicit = any(value is not None for value in (model, duration, aspectRatio))
     template_was_explicit = tmpplateId is not None
 
-    model = model if model is not None else image_cfg.get("model", "")
-    aspectRatio = aspectRatio or image_cfg.get("aspectRatio", "1:1")
-    imageSize = imageSize or image_cfg.get("imageSize", "2K")
-    variants = variants if variants is not None else image_cfg.get("variants", 1)
-    confirm_before_generate = image_cfg.get("confirm_before_generate", True)
+    # 合并配置：命令行参数 > config.yaml > 默认值
+    model = model if model is not None else video_cfg.get("model", "")
+    duration = duration if duration is not None else video_cfg.get("duration", 10)
+    aspectRatio = aspectRatio or video_cfg.get("aspectRatio", "9:16")
+    variants = variants if variants is not None else video_cfg.get("variants", 1)
+    confirm_before_generate = video_cfg.get("confirm_before_generate", True)
 
     token_val = token or load_saved_token()
     if not token_val:
         print("[错误] 请将 Token 写入 flash_longxia/token.txt 或使用 --token=xxx", flush=True)
-        sys.exit(1)
-    if not (prompt or "").strip():
-        print("[错误] 生图模式需要传入 prompt", flush=True)
         sys.exit(1)
     if tmpplateId is not None and not (title or "").strip():
         print("[错误] 使用模板生成时必须同时传入 title", flush=True)
@@ -1170,44 +1240,51 @@ def run_image_workflow(
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
         "Accept": "application/json",
     })
-    print("[1/6] 使用 Token", flush=True)
+    print("[1/7] 使用 Token", flush=True)
 
     try:
-        model_items = fetch_model_options(base_url, session, model_config_url=config.get("model_config_url"))
-        model, _, aspectRatio = resolve_video_options(
+        model_items = fetch_model_options(base_url, session, model_config_url=model_config_url)
+        model, duration, aspectRatio = resolve_video_options(
             model=model,
-            duration=1,
+            duration=duration,
             aspect_ratio=aspectRatio,
             model_items=model_items,
         )
-        print(f"[OK] 模型配置已确认: model={model}, aspectRatio={aspectRatio}, imageSize={imageSize}", flush=True)
+        print(f"[OK] 模型配置已确认: model={model}, duration={duration}, aspectRatio={aspectRatio}", flush=True)
     except Exception as e:
         print(f"[错误] 模型参数校验失败：{e}", flush=True)
         sys.exit(1)
 
+    dev_cfg = config.get("device_verify", {}) or {}
+    if dev_cfg.get("enabled"):
+        import device_verify
+        if not device_verify.run_device_verify(base_url, session, api_path=dev_cfg.get("api_path")):
+            print("[错误] 设备未授权，无法继续", flush=True)
+            sys.exit(1)
+        print("[2/7] 设备验证通过", flush=True)
+    else:
+        print("[2/7] 跳过设备验证（未启用）", flush=True)
+
     try:
-        local_image_paths = normalize_image_paths(image_path) if image_path else []
+        local_image_paths = normalize_image_paths(image_path)
     except ValueError as e:
         print(f"[错误] {e}", flush=True)
         sys.exit(1)
 
+    print(f"[3/7] 上传图片... 共 {len(local_image_paths)} 张", flush=True)
     image_urls: list[str] = []
-    if local_image_paths:
-        print(f"[2/6] 上传图片... 共 {len(local_image_paths)} 张", flush=True)
-        for idx, current_path in enumerate(local_image_paths, start=1):
-            image_url = upload_image(upload_url, current_path, session)
-            if not image_url:
-                sys.exit(1)
-            image_urls.append(image_url)
-            print(f"[OK] 第{idx}/{len(local_image_paths)}张图片已上传：{image_url}", flush=True)
-    else:
-        print("[2/6] 未提供本地图片，将直接使用 prompt 生图", flush=True)
+    for idx, current_path in enumerate(local_image_paths, start=1):
+        image_url = upload_image(upload_url, current_path, session)
+        if not image_url:
+            sys.exit(1)
+        image_urls.append(image_url)
+        print(f"[OK] 第{idx}/{len(local_image_paths)}张图片已上传：{image_url}", flush=True)
 
     if not auto_confirm and not model_was_explicit:
         try:
-            model, _, aspectRatio = select_video_options(
+            model, duration, aspectRatio = select_video_options(
                 current_model=model,
-                current_duration=1,
+                current_duration=duration,
                 current_aspect_ratio=aspectRatio,
                 model_items=model_items,
             )
@@ -1221,47 +1298,81 @@ def run_image_workflow(
             tmpplateId = selected_template_id
             title = selected_template_title
 
-    preview = prompt.replace("\n", " ").strip()
-    if len(preview) > 160:
-        preview = f"{preview[:160]}..."
+    # [4/7] 图生文获取提示词（如果传入了自定义 prompt 则跳过）
+    if prompt:
+        print(f"[4/7] 使用自定义提示词...", flush=True)
+        system_prompt = prompt
+    else:
+        print("[4/7] 图生文获取提示词... (默认使用第1张图片)", flush=True)
+        system_prompt = image_to_text(base_url, image_urls[0], session)
+        prompt_ok, prompt_msg = validate_system_prompt(system_prompt)
+        if not prompt_ok:
+            print(f"[错误] 提示词生成未成功，停止视频生成：{prompt_msg}", flush=True)
+            sys.exit(1)
+        system_prompt = prompt_msg
+    print(f"[OK] 系统提示词：{system_prompt[:80]}...")
 
     if confirm_before_generate and not auto_confirm:
-        print("[确认] 即将调用 generateImage", flush=True)
-        print(f"[确认] 参数: model={model}, aspectRatio={aspectRatio}, imageSize={imageSize}, variants={variants}", flush=True)
-        if tmpplateId is not None:
-            print(f"[确认] 模板: tmpplateId={tmpplateId}, title={title or '-'}", flush=True)
-        print(f"[确认] 提示词预览: {preview}", flush=True)
-        answer = input("[确认] 是否继续生成图片？输入 y 继续，其他任意键取消: ").strip().lower()
-        if answer not in {"y", "yes"}:
-            print("[已取消] 用户未确认，停止发起图片生成", flush=True)
+        if not confirm_video_generation(
+            system_prompt,
+            model=model,
+            duration=duration,
+            aspectRatio=aspectRatio,
+            variants=variants,
+            tmpplateId=tmpplateId,
+            title=title,
+        ):
+            print("[已取消] 用户未确认，停止发起视频生成", flush=True)
             sys.exit(0)
 
-    image_url = image_urls[0] if image_urls else ""
-    print(f"[3/6] 本次提交图片源: {image_url or '-'}", flush=True)
+    print(f"[5/7] 本次提交 {len(image_urls)} 个图片地址:", flush=True)
+    for idx, image_url in enumerate(image_urls, start=1):
+        print(f"[5/7]   {idx}. {image_url}", flush=True)
     print(
-        f"[4/6] 发起图片生成... (model={model}, aspectRatio={aspectRatio}, imageSize={imageSize}, variants={variants})",
+        f"[5/7] 发起视频生成... (images={len(image_urls)}, model={model}, duration={duration}s, aspectRatio={aspectRatio}, variants={variants})",
         flush=True,
     )
     if tmpplateId is not None:
-        print(f"[4/6] 使用模板生成: tmpplateId={tmpplateId}, title={title}", flush=True)
-    task_id = generate_image(
-        base_url,
-        image_url,
-        prompt,
-        session,
+        print(f"[5/7] 使用模板生成: tmpplateId={tmpplateId}, title={title}", flush=True)
+    task_id = generate_video(
+        base_url, image_urls, system_prompt, session,
         aspectRatio=aspectRatio,
-        imageSize=imageSize,
-        variants=variants,
+        duration=duration,
         model=model,
+        variants=variants,
         tmpplateId=tmpplateId,
         title=title,
     )
     if not task_id:
         sys.exit(1)
-    print(f"[OK] 图片任务 ID: {task_id}")
+    print(f"[OK] 任务 ID: {task_id}")
     start_background_poll(task_id, token_val)
-    print(f"[完成] 已提交图片任务 {task_id}，后台轮询已启动", flush=True)
+    print(f"[完成] 已提交任务 {task_id}，后台轮询已启动", flush=True)
     return task_id
+
+    # poll_int = video_cfg.get("poll_interval", 30)
+    # max_wait = video_cfg.get("max_wait_minutes", 30)
+    # print(f"[6/7] 轮询 getById(id={task_id}): 每{poll_int}s 查一次，最多等 {max_wait} 分钟", flush=True)
+    # record, reason = poll_video_status(
+    #     base_url, session, task_id,
+    #     poll_interval=poll_int,
+    #     max_wait_minutes=max_wait,
+    # )
+    # if not record:
+    #     if reason == "failed":
+    #         print("[错误] 任务状态已失败，停止后续下载")
+    #     else:
+    #         print("[错误] 轮询超时，未获取到可下载视频")
+    #     sys.exit(1)
+    #
+    # video_url = get_video_url(record)
+    # if not video_url:
+    #     print("[错误] 无法解析视频 URL:", record)
+    #     sys.exit(1)
+    #
+    # print("[7/7] 下载视频...", flush=True)
+    # output_dir = video_cfg.get("output_dir", "./output")
+    # local_path = download_video(
     #     video_url,
     #     output_dir,
     #     session=session,
@@ -1292,7 +1403,7 @@ def main():
         print("  --model=MODEL        模型值，来自模型配置接口")
         print("  --duration=N         视频时长，需匹配所选模型")
         print("  --aspectRatio=XXX    画面比例，需匹配所选模型")
-        print("  --prompt=TEXT       纯文本提示词，支持不传图片直接生图")
+        print("  --variants=N         生成变体数量")
         print("  --tmpplateId=ID      模板 ID，透传给 generateVideo")
         print("  --templateId=ID      模板 ID，兼容别名，透传为 tmpplateId")
         print("  --title=TEXT         模板标题/产品名称；交互选模板时默认取模板标题")
@@ -1308,7 +1419,7 @@ def main():
         print("  python zhenlongxia_workflow.py ./my_image.jpg --model=grok_imagine --duration=10 --aspectRatio=9:16 --variants=1 --yes")
         print("  python zhenlongxia_workflow.py --list-templates --mediaType=1 --menuType=1")
         print("  python zhenlongxia_workflow.py --list-templates --mediaType=1 --menuType=1 --tabType=17")
-        print("  python zhenlongxia_workflow.py --prompt=一只小狗，毛茸茸的，趴在草地上")
+        print("  python zhenlongxia_workflow.py ./my_image.jpg --tmpplateId=1001 --title=产品名 --yes")
         print("  python zhenlongxia_workflow.py --id=123456")
         print("  python zhenlongxia_workflow.py --fetch-by-id=123456")
         sys.exit(1)
@@ -1322,7 +1433,6 @@ def main():
     duration = None
     aspectRatio = None
     variants = None
-    imageSize = None
     page_num = 1
     page_size = 20
     media_type = 1
@@ -1330,7 +1440,7 @@ def main():
     tab_type = None
     tmpplateId = None
     title = None
-    prompt = None
+    auto_confirm = False
 
     for arg in sys.argv[1:]:
         if arg == "--list-models":
@@ -1369,8 +1479,6 @@ def main():
             tmpplateId = int(arg.split("=", 1)[1])
         elif arg.startswith("--title="):
             title = arg.split("=", 1)[1]
-        elif arg.startswith("--prompt="):
-            prompt = arg.split("=", 1)[1]
         elif arg == "--yes":
             auto_confirm = True
         elif not arg.startswith("--"):
@@ -1441,12 +1549,8 @@ def main():
         print(f"[完成] 视频已保存：{local_path}")
         return
 
-    if prompt is None and image_paths:
-        prompt = " ".join(image_paths).strip()
-        image_paths = []
-
-    if not prompt and not image_paths:
-        print("错误：缺少提示词或图片路径")
+    if not image_paths:
+        print("错误：缺少图片路径，或请使用 --id=ID")
         sys.exit(1)
 
     resolved_image_paths: list[str] = []
@@ -1461,17 +1565,16 @@ def main():
                 sys.exit(1)
         resolved_image_paths.append(current_path)
 
-    run_image_workflow(
-        resolved_image_paths if resolved_image_paths else None,
+    run_workflow(
+        resolved_image_paths,
         token=token,
         model=model,
+        duration=duration,
         aspectRatio=aspectRatio,
-        imageSize=imageSize,
         variants=variants,
         tmpplateId=tmpplateId,
         title=title,
         auto_confirm=auto_confirm,
-        prompt=prompt,
     )
 
 

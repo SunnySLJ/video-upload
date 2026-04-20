@@ -1,0 +1,7 @@
+interface:
+  display_name: "Flash LongXia Module"
+  short_description: "Internal module behind video-workflow for generation, template lookup, and download"
+  default_prompt: "This directory is an internal module behind $video-workflow. Do not expose $flash-longxia as a standalone skill; route image-to-video generation, template lookup, task query, and download through $video-workflow."
+
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "skills": {
+    "agent-browser-cli": {
+      "name": "Agent Browser CLI",
+      "zip_url": "https://lightmake.site/api/v1/download?slug=agent-browser-cli",
+      "source": "skillhub",
+      "version": "1.0.0"
+    },
+    "auto-updater": {
+      "name": "Auto-Updater Skill",
+      "zip_url": "https://lightmake.site/api/v1/download?slug=auto-updater",
+      "source": "skillhub",
+      "version": "1.0.0"
+    },
+    "wechat-article-writer": {
+      "name": "公众号文章创作",
+      "zip_url": "https://lightmake.site/api/v1/download?slug=wechat-article-writer",
+      "source": "skillhub",
+      "version": "1.0.0"
+    },
+    "wechat-publisher": {
+      "name": "Wechat Publisher",
+      "zip_url": "https://lightmake.site/api/v1/download?slug=wechat-publisher",
+      "source": "skillhub",
+      "version": "0.1.0"
+    },
+    "memorist-agent": {
+      "name": "Memorist Agent",
+      "zip_url": "https://lightmake.site/api/v1/download?slug=memorist-agent",
+      "source": "skillhub",
+      "version": "0.1.0"
+    },
+    "memoir": {
+      "name": "memoir",
+      "zip_url": "https://lightmake.site/api/v1/download?slug=memoir",
+      "source": "skillhub",
+      "version": "1.0.2"
+    },
+    "baoyu-infographic": {
+      "name": "Baoyu Infographic",
+      "zip_url": "https://lightmake.site/api/v1/download?slug=baoyu-infographic",
+      "source": "skillhub",
+      "version": "1.76.1"
+    }
+  }
+}

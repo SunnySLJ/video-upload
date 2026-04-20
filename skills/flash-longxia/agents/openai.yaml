@@ -1,0 +1,7 @@
+interface:
+  display_name: "Flash LongXia"
+  short_description: "Preflight-check, generate one video from up to 4 images, or query/download tasks"
+  default_prompt: "Use $flash-longxia to first run the skill preflight for this machine, then generate one video from 1 to 4 local images in the target repo, or query and download a completed video by task ID."
+
+policy:
+  allow_implicit_invocation: true

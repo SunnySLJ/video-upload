@@ -1,0 +1,7 @@
+interface:
+  display_name: "Video Workflow"
+  short_description: "Unified entry for generation, model/template lookup, task query, and download"
+  default_prompt: "Use $video-workflow as the single entry for image-to-video generation, model or industry-template lookup, task query, and download in this repo. Internally route to the flash-longxia module."
+
+policy:
+  allow_implicit_invocation: true

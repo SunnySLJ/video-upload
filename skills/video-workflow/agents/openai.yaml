@@ -1,0 +1,7 @@
+interface:
+  display_name: "Video Workflow"
+  short_description: "Unified entry for generation, login, monitoring, publish, and cleanup"
+  default_prompt: "Use $video-workflow as the single entry for image-to-video generation, WeChat channel login, login monitoring, publish, and cleanup. Internally route to the appropriate module under the skills directory."
+
+policy:
+  allow_implicit_invocation: true

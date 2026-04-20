@@ -1,0 +1,198 @@
+{
+  "saved_at": "2026-04-20 19:27:37",
+  "items": [
+    {
+      "billingItem": "time",
+      "model": {
+        "label": "auto",
+        "value": "auto"
+      },
+      "time": [
+        {
+          "price": 1000.0,
+          "label": "10s 标清",
+          "value": 10
+        },
+        {
+          "price": 1500.0,
+          "label": "15s 标清",
+          "value": 15
+        },
+        {
+          "price": 2000.0,
+          "label": "20s 标清",
+          "value": 20
+        }
+      ],
+      "resolution": [
+        {
+          "label": "16:9 横屏",
+          "value": "16:9"
+        },
+        {
+          "label": "9:16 竖屏",
+          "value": "9:16"
+        },
+        {
+          "label": "1:1方形",
+          "value": "1:1"
+        }
+      ]
+    },
+    {
+      "billingItem": "time",
+      "model": {
+        "label": "HT1.0",
+        "value": "grok_imagine"
+      },
+      "time": [
+        {
+          "price": 600.0,
+          "label": "6s 标清",
+          "value": 6
+        },
+        {
+          "price": 1000.0,
+          "label": "10s 标清",
+          "value": 10
+        },
+        {
+          "price": 1500.0,
+          "label": "15s 标清",
+          "value": 15
+        },
+        {
+          "price": 2000.0,
+          "label": "20s 标清",
+          "value": 20
+        },
+        {
+          "price": 3000.0,
+          "label": "30s 标清",
+          "value": 30
+        }
+      ],
+      "resolution": [
+        {
+          "label": "2:3: 竖向",
+          "value": "2:3"
+        },
+        {
+          "label": "3:2: 横向",
+          "value": "3:2"
+        },
+        {
+          "label": "1:1: 正方形",
+          "value": "1:1"
+        },
+        {
+          "label": "16:9: 宽屏",
+          "value": "16:9"
+        },
+        {
+          "label": "9:16: 竖屏",
+          "value": "9:16"
+        }
+      ]
+    },
+    {
+      "billingItem": "time",
+      "model": {
+        "label": "HT2.0",
+        "value": "Seedance"
+      },
+      "time": [
+        {
+          "price": 1500.0,
+          "label": "15s 标清",
+          "value": 15
+        },
+        {
+          "price": 3000.0,
+          "label": "30s 标清",
+          "value": 30
+        }
+      ],
+      "resolution": [
+        {
+          "label": "4:3: 横向",
+          "value": "4:3"
+        },
+        {
+          "label": "3:4: 竖向",
+          "value": "3:4"
+        },
+        {
+          "label": "16:9: 宽屏",
+          "value": "16:9"
+        },
+        {
+          "label": "9:16: 竖屏",
+          "value": "9:16"
+        }
+      ]
+    },
+    {
+      "billingItem": "time",
+      "model": {
+        "label": "HT3.0",
+        "value": "veo3.1_fast"
+      },
+      "time": [
+        {
+          "price": 800.0,
+          "label": "8s 标清",
+          "value": 8
+        }
+      ],
+      "resolution": [
+        {
+          "label": "16:9: 宽屏",
+          "value": "16:9"
+        },
+        {
+          "label": "9:16: 竖屏",
+          "value": "9:16"
+        }
+      ]
+    },
+    {
+      "billingItem": "time",
+      "model": {
+        "label": "HT人像",
+        "value": "kling-v3-omni"
+      },
+      "time": [
+        {
+          "price": 1000.0,
+          "label": "5s 标清",
+          "value": 5
+        },
+        {
+          "price": 2000.0,
+          "label": "10s 标清",
+          "value": 10
+        },
+        {
+          "price": 3000.0,
+          "label": "15s 标清",
+          "value": 15
+        }
+      ],
+      "resolution": [
+        {
+          "label": "1:1 正常",
+          "value": "1:1"
+        },
+        {
+          "label": "16:9 宽屏",
+          "value": "16:9"
+        },
+        {
+          "label": "9:16 竖屏",
+          "value": "9:16"
+        }
+      ]
+    }
+  ]
+}

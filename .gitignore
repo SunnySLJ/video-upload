@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Environment variables
+.env
+*.env
+image.env
+token.txt
+
+# OpenClaw specific runtime data
+openclaw_upload/cookies/
+openclaw_upload/logs/
+openclaw_upload/download/
+openclaw_upload/downloads/
+openclaw_upload/flash_longxia/output/
+openclaw_upload/flash_longxia/notify_*.json
+memory/
+tmp/
+state/
+media/
+openclaw_upload.zip
+BOOTSTRAP.md
+
+# Secret configs (we commit TOOLS.example.md instead)
+TOOLS.md
+auth-profiles.json
+exec-approvals.json
+
+# OS files
+.DS_Store
+*.swp

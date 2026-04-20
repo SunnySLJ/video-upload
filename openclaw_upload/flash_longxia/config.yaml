@@ -1,0 +1,5 @@
+notify:
+  targets:
+    - feishu
+  feishu_target: "user:YOUR_FEISHU_OPEN_ID"
+  channel: "feishu"
